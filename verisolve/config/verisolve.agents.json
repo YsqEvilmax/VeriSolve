@@ -3,12 +3,21 @@
     "TriageAgent",
     "ResolverAgent"
   ],
+  "agent_files": {
+    "TriageAgent": "agents/triage.agent.md",
+    "ResolverAgent": "agents/resolver.agent.md"
+  },
   "triage": {
     "prompt_ref": "triage.default",
     "max_keywords": 20,
     "max_keyword_length": 64
   },
   "resolver": {
+    "modes": [
+      "resolve",
+      "review"
+    ],
+    "review_uses_same_agent_file": true,
     "max_summary_length": 200,
     "retry_context_fields": [
       "previous_summary",
