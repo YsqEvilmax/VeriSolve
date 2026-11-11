@@ -1,0 +1,61 @@
+{
+  "problem_id_max_length": 128,
+  "change_id_max_length": 128,
+  "top_errors_max_count": 3,
+  "change_summary_max_length": 200,
+  "retry_summary_max_length": 200,
+  "resolver_context_summary_max_length": 200,
+  "playbook_solution_summary_min_length": 0,
+  "playbook_solution_summary_max_length": 300,
+  "change_diff_max_length": 100000,
+  "change_targets_min_count": 1,
+  "change_targets_max_count": 50,
+  "signature_keywords_min_count": 0,
+  "signature_keywords_max_count": 20,
+  "signature_keyword_max_length": 64,
+  "severity_values": [
+    "critical",
+    "high",
+    "medium",
+    "low"
+  ],
+  "fail_categories": [
+    "pipeline_failed",
+    "new_issue_introduced",
+    "tests_failed",
+    "coverage_dropped",
+    "guardrail_rejected",
+    "timeout",
+    "oracle_error",
+    "review_rejected",
+    "unknown"
+  ],
+  "additional_fail_categories": [],
+  "additional_fail_category_max_length": 64,
+  "additional_fail_category_pattern": "^[a-z0-9_]{1,64}$",
+  "high_risk_categories": "incident",
+  "high_risk_categories_default": "incident",
+  "max_playbook_try": 3,
+  "pending_verifications_path": "playbook/pending-verifications.json",
+  "check_batch_limit": 20,
+  "poll_interval_sec": 30,
+  "guardrails": {
+    "max_patch_files": 10,
+    "max_patch_bytes": 100000,
+    "max_patch_lines": 2000,
+    "forbidden_targets": [
+      ".git/**",
+      "secrets/**"
+    ],
+    "forbidden_patterns": []
+  },
+  "signals": {
+    "top_errors_max_count": 3
+  },
+  "triage": {
+    "prompt_ref": "triage.default",
+    "max_parallel_triage": 8,
+    "playbook_top_k": 1,
+    "playbook_min_score": 0.6
+  }
+}

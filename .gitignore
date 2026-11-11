@@ -1,0 +1,11 @@
+# VeriSolve runtime artifacts (local, never committed)
+.github/playbook/event-queue.log
+.github/playbook/playbook-writer.lock
+.github/playbook/pending-verifications.lock
+.github/playbook/verify-start-*
+.github/playbook/poller.pid
+.github/playbook/poller.log
+.github/playbook/poller.error.log
+.github/playbook/runs/
+.github/verisolve-init.manifest.json
+*.tmp

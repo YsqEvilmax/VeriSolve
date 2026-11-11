@@ -1,0 +1,57 @@
+{
+  "host": "VS Code Copilot",
+  "command_timeout_seconds": 30,
+  "problem_sources": {
+    "example": {
+      "command": null,
+      "arguments": [],
+      "description": "Empty ExampleAdapter fixture"
+    },
+    "checkmarx_example": {
+      "command": null,
+      "arguments": [],
+      "description": "Illustrative external report source; configure command and arguments locally"
+    }
+  },
+  "executor": {
+    "apply": {
+      "command": null,
+      "arguments": [],
+      "idempotency_key_field": "change_id"
+    },
+    "revert": {
+      "command": null,
+      "arguments": [],
+      "idempotency_key_field": "change_id"
+    }
+  },
+  "oracle": {
+    "start": {
+      "command": "pwsh",
+      "arguments": [
+        "-NoProfile",
+        "-File",
+        "skills/verify-change/mock-start.ps1"
+      ],
+      "request_idempotency_key_field": "idempotency_key"
+    },
+    "check": {
+      "command": "pwsh",
+      "arguments": [
+        "-NoProfile",
+        "-File",
+        "skills/verify-change/mock-check.ps1"
+      ]
+    },
+    "timeout_categories": [
+      "timeout",
+      "oracle_error"
+    ]
+  },
+  "run_store_path": "playbook/runs",
+  "pending_verifications_path": "playbook/pending-verifications.json",
+  "lock_file": "playbook/pending-verifications.lock",
+  "start_lock_prefix": "playbook/verify-start-",
+  "mock_mode": true,
+  "external_integration_notes": "Live problem-source, executor, and Oracle commands are user-configured JSON entries. Checkmarx is an example integration only; VeriSolve does not hard-code its API."
+}

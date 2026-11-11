@@ -1,0 +1,37 @@
+{
+  "agent_kinds": [
+    "TriageAgent",
+    "ResolverAgent"
+  ],
+  "agent_files": {
+    "coordinator": "agents/verisolve.agent.md",
+    "TriageAgent": "agents/triage.agent.md",
+    "ResolverAgent": "agents/resolver.agent.md"
+  },
+  "triage": {
+    "prompt_ref": "triage.default",
+    "max_keywords": 20,
+    "max_keyword_length": 64,
+    "max_parallel_triage": 8
+  },
+  "resolver": {
+    "modes": [
+      "resolve",
+      "review"
+    ],
+    "review_uses_same_agent_file": true,
+    "max_summary_length": 200,
+    "review_reason_max_length": 200,
+    "review_acceptance_criteria_max_length": 4000,
+    "retry_context_fields": [
+      "previous_summary",
+      "fail_category",
+      "top_errors"
+    ],
+    "max_top_errors": 3,
+    "review_context_fields": [
+      "diff",
+      "acceptance_criteria"
+    ]
+  }
+}

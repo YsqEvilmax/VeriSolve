@@ -1,0 +1,28 @@
+{
+  "category_values": [
+    "bug",
+    "incident",
+    "maintenance",
+    "other"
+  ],
+  "priority_matrix": {
+    "incident": 4,
+    "bug": 3,
+    "maintenance": 2,
+    "other": 1
+  },
+  "priority_matrix_default": 0,
+  "severity_order": [
+    "low",
+    "medium",
+    "high",
+    "critical"
+  ],
+  "schedule_order": [
+    "playbook_matched",
+    "match_score",
+    "severity",
+    "created_at",
+    "ingest_seq"
+  ]
+}

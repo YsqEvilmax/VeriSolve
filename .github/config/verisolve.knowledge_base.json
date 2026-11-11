@@ -1,0 +1,15 @@
+{
+  "event_log_path": "playbook/events.log",
+  "event_queue_path": "playbook/event-queue.log",
+  "snapshot_path": "playbook/snapshot.json",
+  "writer_lock_path": "playbook/playbook-writer.lock",
+  "writer_batch_size": 64,
+  "writer_flush_timeout_seconds": 30,
+  "writer_poll_interval_ms": 50,
+  "embedding_weight": 0.6,
+  "feature_weight": 0.3,
+  "confidence_weight": 0.1,
+  "low_conf_threshold": 0.6,
+  "top_k": 5,
+  "min_score": 0.0
+}

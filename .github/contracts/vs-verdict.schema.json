@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://verisolve.dev/contracts/vs-verdict.schema.json",
+  "title": "VSVerdict",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["ok", "fail_category", "evidence", "verdict_at"],
+  "properties": {
+    "ok": { "type": "boolean" },
+    "fail_category": {
+      "type": ["string", "null"],
+      "enum": [
+        "pipeline_failed",
+        "new_issue_introduced",
+        "tests_failed",
+        "coverage_dropped",
+        "guardrail_rejected",
+        "timeout",
+        "oracle_error",
+        "review_rejected",
+        "unknown",
+        null
+      ],
+      "maxLength": 64,
+      "pattern": "^[a-z0-9_]{1,64}$",
+      "x-verisolve-append-enum-from": "../config/verisolve.verification.json#/additional_fail_categories"
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["top_errors", "signals", "artifacts"],
+      "properties": {
+        "top_errors": {
+          "type": "array",
+          "maxItems": 3,
+          "items": { "type": "string" }
+        },
+        "signals": {
+          "type": "object",
+          "additionalProperties": { "type": "boolean" }
+        },
+        "artifacts": { "type": "object", "additionalProperties": true }
+      }
+    },
+    "verdict_at": { "type": "string", "format": "date-time" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "ok": { "const": false } }, "required": ["ok"] },
+      "then": {
+        "properties": {
+          "fail_category": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  ]
+}
