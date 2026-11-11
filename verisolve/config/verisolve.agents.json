@@ -1,0 +1,24 @@
+{
+  "agent_kinds": [
+    "TriageAgent",
+    "ResolverAgent"
+  ],
+  "triage": {
+    "prompt_ref": "triage.default",
+    "max_keywords": 20,
+    "max_keyword_length": 64
+  },
+  "resolver": {
+    "max_summary_length": 200,
+    "retry_context_fields": [
+      "previous_summary",
+      "fail_category",
+      "top_errors"
+    ],
+    "max_top_errors": 3,
+    "review_context_fields": [
+      "diff",
+      "acceptance_criteria"
+    ]
+  }
+}

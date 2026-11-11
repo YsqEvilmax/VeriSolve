@@ -1,0 +1,15 @@
+{
+  "category_values": [
+    "bug",
+    "incident",
+    "maintenance",
+    "other"
+  ],
+  "high_risk_categories": "incident",
+  "priority_matrix": {
+    "incident": 4,
+    "bug": 3,
+    "maintenance": 2,
+    "other": 1
+  }
+}
