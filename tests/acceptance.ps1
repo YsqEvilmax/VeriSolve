@@ -3,10 +3,10 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'lib\harness.ps1')
-. (Join-Path $script:Root '.github\lib\vs-contracts.ps1')
-. (Join-Path $script:Root '.github\lib\vs-filelock.ps1')
-. (Join-Path $script:Root '.github\lib\vs-playbook.ps1')
-. (Join-Path $script:Root '.github\lib\vs-schedule.ps1')
+. (Join-Path $script:Root '.github\skills\verisolve-init\templates\lib\vs-contracts.ps1')
+. (Join-Path $script:Root '.github\skills\verisolve-init\templates\lib\vs-filelock.ps1')
+. (Join-Path $script:Root '.github\skills\verisolve-init\templates\lib\vs-playbook.ps1')
+. (Join-Path $script:Root '.github\skills\verisolve-init\templates\lib\vs-schedule.ps1')
 
 Write-Host "VeriSolve acceptance suite" -ForegroundColor White
 Write-Host "repo: $($script:Root)"
@@ -18,5 +18,6 @@ foreach ($caseFile in $caseFiles) {
 }
 
 $ok = Write-VSReport
+Remove-VSSandbox -Path $script:BaseWorkspace
 if (-not $ok) { exit 1 }
 exit 0

@@ -1,5 +1,5 @@
 # Two-stage verification acceptance cases: non-blocking start, bounded check, infra retry.
-$githubRoot = Join-Path $script:Root '.github'
+$githubRoot = $script:BaseGithub
 $config = Get-VSConfigSet -GithubRoot $githubRoot
 
 Write-VSSection 'Two-stage verification'

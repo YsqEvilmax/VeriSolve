@@ -1,131 +1,255 @@
-# Scaffolding, resume detection, and uninstall acceptance cases.
-$githubRoot = Join-Path $script:Root '.github'
-$initScript = Join-Path $githubRoot 'skills\verisolve-init\run.ps1'
-$cleanupScript = Join-Path $githubRoot 'skills\verisolve-cleanup\run.ps1'
+# Release-payload acceptance cases: prerequisites, state detection, idempotent scaffolding, uninstall.
+Write-VSSection 'Release payload: prerequisites and state'
 
-Write-VSSection 'Scaffolding and uninstall'
-
-function New-VSWorkspace {
-    $path = Join-Path ([IO.Path]::GetTempPath()) ("verisolve-ws-" + [guid]::NewGuid().ToString('N'))
-    $null = New-Item -ItemType Directory -Path $path -Force
-    return $path
+function New-VSEmptyWorkspace {
+    return New-VSTempDirectory -Prefix 'verisolve-ws'
 }
 
-Invoke-VSTest 'init-scaffolds-the-linked-system' {
-    $workspace = New-VSWorkspace
-    try {
-        $result = Invoke-VSScriptJson -Path $initScript -Arguments @('-Mode', 'scaffold', '-Workspace', $workspace)
-        Assert-VSEqual 'scaffolded' $result.mode 'scaffold mode reported'
-        Assert-VSTrue ([int]$result.created_count -gt 20) 'the full system tree was copied'
+function Invoke-VSReleaseScript {
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [AllowEmptyCollection()][object[]]$Arguments = @()
+    )
+    return Invoke-VSScriptJson -Path $Path -Arguments $Arguments
+}
 
-        $targetGithub = Join-Path $workspace '.github'
-        foreach ($relative in @(
-                'agents\verisolve.agent.md',
-                'agents\triage.agent.md',
-                'agents\resolver.agent.md',
-                'skills\verify-change\start.ps1',
-                'skills\verify-change\check.ps1',
-                'skills\playbook-commit\run.ps1',
-                'skills\rank-and-schedule\run.ps1',
-                'lib\vs-contracts.ps1',
-                'config\verisolve.verification.json',
-                'contracts\vs-change.schema.json',
-                'workflows\run-pipeline.workflow.md',
-                'playbook\events.log',
-                'playbook\snapshot.json',
-                'playbook\pending-verifications.json'
-            )) {
-            Assert-VSTrue (Test-Path -LiteralPath (Join-Path $targetGithub $relative)) "scaffolded $relative"
+Invoke-VSTest 'check-prerequisites-reports-environment-readonly' {
+    $workspace = New-VSEmptyWorkspace
+    try {
+        $before = @(Get-ChildItem -LiteralPath $workspace -Recurse -Force).Count
+        $result = Invoke-VSReleaseScript -Path $script:PrerequisiteScript -Arguments @('-Workspace', $workspace)
+        $after = @(Get-ChildItem -LiteralPath $workspace -Recurse -Force).Count
+
+        Assert-VSEqual $before $after 'prerequisite check creates nothing'
+        Assert-VSEqual $true $result.pwsh.ok 'pwsh 7+ detected'
+        Assert-VSTrue ($result.pwsh.version -match '^7\.') 'pwsh version reported'
+        Assert-VSEqual $true $result.git.ok 'git detected'
+        Assert-VSTrue ($result.git.version -like 'git version*') 'git version reported'
+        Assert-VSEqual 'template' $result.config_source 'empty workspace inspects the template config'
+
+        $keys = @($result.config_placeholders | ForEach-Object { $_.key })
+        foreach ($expected in @('executor.apply.command', 'executor.revert.command', 'oracle.start.command', 'oracle.check.command')) {
+            Assert-VSTrue ($keys -contains $expected) "placeholder '$expected' reported"
         }
-        Assert-VSTrue (Test-Path -LiteralPath (Join-Path $targetGithub 'verisolve-init.manifest.json')) 'ownership manifest written'
-
-        $manifest = Get-Content -LiteralPath (Join-Path $targetGithub 'verisolve-init.manifest.json') -Raw -Encoding utf8 | ConvertFrom-Json -AsHashtable
-        Assert-VSEqual 'verisolve-init' $manifest.created_by 'manifest records the scaffold owner'
-        Assert-VSTrue (@($manifest.files | Where-Object { $_.path -like 'playbook/*' }).Count -ge 3) 'runtime state files recorded in the manifest'
+        $executor = @($result.config_placeholders | Where-Object { $_.key -eq 'executor.apply.command' })[0]
+        Assert-VSEqual $false $executor.filled 'unconfigured executor reported as not filled'
+        Assert-VSTrue (-not [string]::IsNullOrWhiteSpace($executor.example)) 'placeholder ships an example value'
+        $oracle = @($result.config_placeholders | Where-Object { $_.key -eq 'oracle.start.command' })[0]
+        Assert-VSEqual $true $oracle.filled 'shipped mock oracle counts as configured'
     } finally { Remove-VSSandbox -Path $workspace }
 }
 
-Invoke-VSTest 'init-reports-unconfigured-external-integrations' {
-    $workspace = New-VSWorkspace
+Invoke-VSTest 'check-prerequisites-never-exits-nonzero' {
+    $workspace = New-VSEmptyWorkspace
     try {
-        $result = Invoke-VSScriptJson -Path $initScript -Arguments @('-Mode', 'scaffold', '-Workspace', $workspace)
-        $missing = @($result.unconfigured_integrations)
-        Assert-VSTrue ($missing -contains 'executor.apply.command') 'unconfigured executor is reported'
-        Assert-VSTrue ($missing -contains 'executor.revert.command') 'unconfigured revert is reported'
-        Assert-VSTrue ($missing -contains 'problem_sources.checkmarx_example.command') 'example external source is reported'
-        Assert-VSTrue (-not ($missing -contains 'oracle.start.command')) 'mock Oracle start is configured out of the box'
+        $result = Invoke-VSScript -Path $script:PrerequisiteScript -Arguments @('-Workspace', $workspace)
+        Assert-VSEqual 0 $result.exit_code 'prerequisite check always exits 0'
+        $null = $result.text | ConvertFrom-Json -AsHashtable
     } finally { Remove-VSSandbox -Path $workspace }
 }
 
-Invoke-VSTest 'init-refuses-to-overwrite-and-inspect-detects-resume' {
-    $workspace = New-VSWorkspace
+Invoke-VSTest 'detect-state-reports-init-before-scaffolding' {
+    $workspace = New-VSEmptyWorkspace
     try {
-        $null = Invoke-VSScriptJson -Path $initScript -Arguments @('-Mode', 'scaffold', '-Workspace', $workspace)
-        $second = Invoke-VSScript -Path $initScript -Arguments @('-Mode', 'scaffold', '-Workspace', $workspace)
-        Assert-VSTrue ($second.exit_code -ne 0) 'second scaffold refuses to overwrite'
+        $result = Invoke-VSReleaseScript -Path $script:DetectScript -Arguments @('-Workspace', $workspace)
+        Assert-VSEqual $false $result.scaffolded 'empty workspace is not scaffolded'
+        Assert-VSEqual 0 $result.pending_count 'no pending verifications'
+        Assert-VSEqual $null $result.last_run 'no last run'
+        Assert-VSEqual 'init' $result.suggested_action 'suggests init'
+        Assert-VSTrue (-not (Test-Path -LiteralPath (Join-Path $workspace '.github'))) 'state detection creates nothing'
+    } finally { Remove-VSSandbox -Path $workspace }
+}
 
-        $pendingPath = Join-Path $workspace '.github\playbook\pending-verifications.json'
-        $state = Get-Content -LiteralPath $pendingPath -Raw -Encoding utf8 | ConvertFrom-Json -AsHashtable
-        $state.pending = @([ordered]@{ verification_id = 'mock-1'; change_id = 'c1'; problem_id = 'p1'; started_at = '2026-01-01T00:00:00Z'; infrastructure_retries = 0; request = [ordered]@{} })
-        $state.completed = @([ordered]@{ verification_id = 'mock-2'; problem_id = 'p2'; verdict = [ordered]@{}; request = [ordered]@{} })
+Invoke-VSTest 'detect-state-reads-pending-and-last-run-without-orchestrating' {
+    $workspace = New-VSEmptyWorkspace
+    try {
+        $null = Invoke-VSReleaseScript -Path $script:ScaffoldScript -Arguments @('-Workspace', $workspace)
+        $github = Join-Path $workspace '.github'
+
+        $pendingPath = Join-Path $github 'playbook\pending-verifications.json'
+        $state = [ordered]@{
+            schema_version = 1
+            pending        = @([ordered]@{ verification_id = 'v1'; change_id = 'c1'; problem_id = 'p1' }, [ordered]@{ verification_id = 'v2'; change_id = 'c2'; problem_id = 'p2' })
+            completed      = @()
+            infra_failed   = @()
+        }
         [IO.File]::WriteAllText($pendingPath, (ConvertTo-Json -InputObject $state -Depth 20), [Text.UTF8Encoding]::new($false))
 
-        $inspect = Invoke-VSScriptJson -Path $initScript -Arguments @('-Mode', 'inspect', '-Workspace', $workspace)
-        Assert-VSEqual 'resume' $inspect.mode 'existing system reports resume mode'
-        Assert-VSEqual 1 $inspect.pending_count 'pending count surfaced'
-        Assert-VSEqual 1 $inspect.completed_count 'completed count surfaced'
-        Assert-VSEqual $true $inspect.manifest_exists 'manifest presence surfaced'
+        $runDirectory = Join-Path $github 'playbook\runs\run-20260101000000-abcdef01'
+        $null = New-Item -ItemType Directory -Path $runDirectory -Force
+        [IO.File]::WriteAllText((Join-Path $runDirectory 'status.json'), '{"state":"scheduled"}', [Text.UTF8Encoding]::new($false))
+        [IO.File]::WriteAllText((Join-Path $runDirectory 'results.json'), (ConvertTo-Json -InputObject ([ordered]@{
+                        archived  = @([ordered]@{ problem_id = 'p1' }, [ordered]@{ problem_id = 'p2' }, [ordered]@{ problem_id = 'p3' })
+                        skipped   = @([ordered]@{ problem_id = 'p4' })
+                        escalated = @([ordered]@{ problem_id = 'p4' }, [ordered]@{ problem_id = 'p5' })
+                    }) -Depth 10), [Text.UTF8Encoding]::new($false))
+
+        $before = (Get-Item $pendingPath).LastWriteTimeUtc
+        $result = Invoke-VSReleaseScript -Path $script:DetectScript -Arguments @('-Workspace', $workspace)
+        $after = (Get-Item $pendingPath).LastWriteTimeUtc
+
+        Assert-VSEqual $true $result.scaffolded 'scaffolded detected'
+        Assert-VSEqual 2 $result.pending_count 'pending entries counted'
+        Assert-VSEqual 'resume' $result.suggested_action 'suggests resume'
+        Assert-VSEqual 'run-20260101000000-abcdef01' $result.last_run.id 'latest run id reported'
+        Assert-VSEqual 3 $result.last_run.resolved 'resolved count reported'
+        Assert-VSEqual 1 $result.last_run.skipped 'skipped count reported'
+        Assert-VSEqual 2 $result.last_run.escalation 'escalation count reported'
+        Assert-VSEqual $before $after 'state detection never writes pending state'
     } finally { Remove-VSSandbox -Path $workspace }
 }
 
-Invoke-VSTest 'cleanup-plan-is-non-destructive-and-explicit' {
-    $workspace = New-VSWorkspace
+Write-VSSection 'Release payload: scaffolding'
+
+Invoke-VSTest 'scaffold-releases-the-whole-linked-system' {
+    $workspace = New-VSEmptyWorkspace
     try {
-        $null = Invoke-VSScriptJson -Path $initScript -Arguments @('-Mode', 'scaffold', '-Workspace', $workspace)
-        $before = @(Get-ChildItem -LiteralPath (Join-Path $workspace '.github') -Recurse -File).Count
-        $plan = Invoke-VSScriptJson -Path $cleanupScript -Arguments @('-Mode', 'plan', '-Workspace', $workspace)
-        Assert-VSTrue (@($plan.deletable).Count -gt 20) 'plan lists scaffold-owned files'
-        Assert-VSTrue ($plan.warning -like '*External pipelines continue running*') 'plan warns that external pipelines keep running'
-        $after = @(Get-ChildItem -LiteralPath (Join-Path $workspace '.github') -Recurse -File).Count
+        $result = Invoke-VSReleaseScript -Path $script:ScaffoldScript -Arguments @('-Workspace', $workspace)
+        Assert-VSTrue (@($result.created).Count -ge 40) "scaffold released the whole tree (created $(@($result.created).Count))"
+        Assert-VSEqual 0 @($result.skipped).Count 'fresh workspace skips nothing'
+        Assert-VSEqual $true $result.playbook_initialized 'playbook initialised'
+
+        $github = Join-Path $workspace '.github'
+        foreach ($relative in @(
+                'agents/verisolve.agent.md', 'agents/triage.agent.md', 'agents/resolver.agent.md',
+                'skills/fetch-backlog/run.ps1', 'skills/verify-change/start.ps1', 'skills/verify-change/check.ps1',
+                'skills/verify-change/pending-store.ps1', 'skills/rank-and-schedule/run.ps1',
+                'skills/verisolve-cleanup/SKILL.md', 'skills/verisolve-cleanup/scripts/cleanup.ps1',
+                'config/verisolve.verification.json', 'contracts/vs-change.schema.json',
+                'lib/vs-contracts.ps1', 'workflows/run-pipeline.workflow.md',
+                'playbook/events.log', 'playbook/snapshot.json', 'playbook/pending-verifications.json',
+                'copilot-instructions.md'
+            )) {
+            Assert-VSTrue (Test-Path -LiteralPath (Join-Path $github ($relative -replace '/', '\'))) "scaffolded $relative"
+        }
+
+        $pending = [IO.File]::ReadAllText((Join-Path $github 'playbook\pending-verifications.json'), [Text.Encoding]::UTF8).Trim()
+        Assert-VSEqual '[]' $pending 'pending state seeded as an empty array'
+        Assert-VSEqual 0 (Get-Item (Join-Path $github 'playbook\events.log')).Length 'event log seeded empty'
+        $snapshot = Get-Content -LiteralPath (Join-Path $github 'playbook\snapshot.json') -Raw -Encoding utf8 | ConvertFrom-Json -AsHashtable
+        Assert-VSEqual 0 $snapshot.version 'snapshot seeded at version 0'
+    } finally { Remove-VSSandbox -Path $workspace }
+}
+
+Invoke-VSTest 'scaffold-is-idempotent-and-preserves-user-edits' {
+    $workspace = New-VSEmptyWorkspace
+    try {
+        $first = Invoke-VSReleaseScript -Path $script:ScaffoldScript -Arguments @('-Workspace', $workspace)
+        $github = Join-Path $workspace '.github'
+        $agentsPath = Join-Path $github 'agents\verisolve.agent.md'
+        [IO.File]::AppendAllText($agentsPath, "`n<!-- user edit -->`n", [Text.UTF8Encoding]::new($false))
+
+        $second = Invoke-VSReleaseScript -Path $script:ScaffoldScript -Arguments @('-Workspace', $workspace)
+        Assert-VSEqual 0 @($second.created).Count 'second run creates nothing'
+        Assert-VSEqual @($first.created).Count @($second.skipped).Count 'second run reports every file as skipped'
+        Assert-VSTrue ([IO.File]::ReadAllText($agentsPath, [Text.Encoding]::UTF8) -like '*user edit*') 'user edit preserved'
+        Assert-VSEqual $true $second.playbook_initialized 'playbook still reported as initialised'
+    } finally { Remove-VSSandbox -Path $workspace }
+}
+
+Invoke-VSTest 'scaffold-rolls-back-when-templates-are-incomplete' {
+    $workspace = New-VSEmptyWorkspace
+    $payload = New-VSTempDirectory -Prefix 'verisolve-payload'
+    try {
+        Copy-Item -LiteralPath $script:ReleaseSkill -Destination (Join-Path $payload 'verisolve-init') -Recurse -Force
+        $brokenPayload = Join-Path $payload 'verisolve-init'
+        Remove-Item -LiteralPath (Join-Path $brokenPayload 'templates\contracts\vs-verdict.schema.json') -Force
+
+        $result = Invoke-VSScript -Path (Join-Path $brokenPayload 'scripts\scaffold.ps1') -Arguments @('-Workspace', $workspace)
+        Assert-VSTrue ($result.exit_code -ne 0) 'incomplete templates fail the scaffold'
+        Assert-VSTrue ($result.text -like '*vs-verdict.schema.json*') 'failure names the missing template'
+        Assert-VSTrue (-not (Test-Path -LiteralPath (Join-Path $workspace '.github'))) 'rollback removed every released file and directory'
+    } finally {
+        Remove-VSSandbox -Path $workspace
+        Remove-VSSandbox -Path $payload
+    }
+}
+
+Invoke-VSTest 'scaffold-keeps-existing-copilot-instructions' {
+    $workspace = New-VSEmptyWorkspace
+    try {
+        $github = Join-Path $workspace '.github'
+        $null = New-Item -ItemType Directory -Path $github -Force
+        $instructions = Join-Path $github 'copilot-instructions.md'
+        [IO.File]::WriteAllText($instructions, '# my own rules', [Text.UTF8Encoding]::new($false))
+
+        $result = Invoke-VSReleaseScript -Path $script:ScaffoldScript -Arguments @('-Workspace', $workspace)
+        Assert-VSTrue (@($result.skipped) -contains 'copilot-instructions.md') 'existing instructions reported as skipped'
+        Assert-VSEqual '# my own rules' ([IO.File]::ReadAllText($instructions, [Text.Encoding]::UTF8)) 'user instructions untouched'
+    } finally { Remove-VSSandbox -Path $workspace }
+}
+
+Write-VSSection 'Release payload: uninstall'
+
+Invoke-VSTest 'cleanup-plan-is-read-only' {
+    $workspace = New-VSSandbox
+    try {
+        $github = Get-VSSandboxGithub -Sandbox $workspace
+        $cleanup = Join-Path $github 'skills\verisolve-cleanup\scripts\cleanup.ps1'
+        $before = @(Get-ChildItem -LiteralPath $github -Recurse -File).Count
+        $plan = Invoke-VSReleaseScript -Path $cleanup -Arguments @('-Mode', 'plan', '-Workspace', $workspace)
+        $after = @(Get-ChildItem -LiteralPath $github -Recurse -File).Count
+
+        Assert-VSEqual 'plan' $plan.mode 'plan mode reported'
         Assert-VSEqual $before $after 'plan deletes nothing'
-
-        $unconfirmed = Invoke-VSScript -Path $cleanupScript -Arguments @('-Mode', 'uninstall', '-Workspace', $workspace)
-        Assert-VSTrue ($unconfirmed.exit_code -ne 0) 'uninstall without confirmation is refused'
-        Assert-VSTrue ($unconfirmed.text -like '*ConfirmUninstall*') 'refusal explains the confirmation requirement'
+        Assert-VSTrue (@($plan.would_delete).Count -ge 10) 'plan lists the VeriSolve files'
+        Assert-VSTrue ($plan.warning -like '*not cancelled*') 'plan warns that pipelines keep running'
     } finally { Remove-VSSandbox -Path $workspace }
 }
 
-Invoke-VSTest 'cleanup-removes-scaffold-retains-modified-files-and-clears-pending' {
-    $workspace = New-VSWorkspace
+Invoke-VSTest 'cleanup-refuses-without-confirmation' {
+    $workspace = New-VSSandbox
     try {
-        $null = Invoke-VSScriptJson -Path $initScript -Arguments @('-Mode', 'scaffold', '-Workspace', $workspace)
-        $targetGithub = Join-Path $workspace '.github'
-        $modified = Join-Path $targetGithub 'config\verisolve.system.json'
-        [IO.File]::AppendAllText($modified, ' ', [Text.UTF8Encoding]::new($false))
+        $github = Get-VSSandboxGithub -Sandbox $workspace
+        $cleanup = Join-Path $github 'skills\verisolve-cleanup\scripts\cleanup.ps1'
+        $result = Invoke-VSScript -Path $cleanup -Arguments @('-Mode', 'uninstall', '-Workspace', $workspace)
+        Assert-VSTrue ($result.exit_code -ne 0) 'uninstall without confirmation is refused'
+        Assert-VSTrue ($result.text -like '*ConfirmUninstall*') 'refusal explains the confirmation flag'
+        Assert-VSTrue (Test-Path -LiteralPath (Join-Path $github 'agents\verisolve.agent.md')) 'nothing deleted on refusal'
+    } finally { Remove-VSSandbox -Path $workspace }
+}
 
-        $pendingPath = Join-Path $targetGithub 'playbook\pending-verifications.json'
-        $state = Get-Content -LiteralPath $pendingPath -Raw -Encoding utf8 | ConvertFrom-Json -AsHashtable
-        $state.pending = @([ordered]@{ verification_id = 'mock-1'; change_id = 'c1'; problem_id = 'p1'; started_at = '2026-01-01T00:00:00Z'; infrastructure_retries = 0; request = [ordered]@{} })
-        [IO.File]::WriteAllText($pendingPath, (ConvertTo-Json -InputObject $state -Depth 20), [Text.UTF8Encoding]::new($false))
+Invoke-VSTest 'cleanup-backs-up-then-deletes-allowlist-and-itself-last' {
+    $workspace = New-VSSandbox
+    try {
+        $github = Get-VSSandboxGithub -Sandbox $workspace
+        $cleanup = Join-Path $github 'skills\verisolve-cleanup\scripts\cleanup.ps1'
 
-        $result = Invoke-VSScriptJson -Path $cleanupScript -Arguments @('-Mode', 'uninstall', '-Workspace', $workspace, '-ConfirmUninstall')
+        $userAgent = Join-Path $github 'agents\my-own.agent.md'
+        [IO.File]::WriteAllText($userAgent, '# user agent', [Text.UTF8Encoding]::new($false))
+        $userSkill = Join-Path $github 'skills\my-own-skill'
+        $null = New-Item -ItemType Directory -Path $userSkill -Force
+        [IO.File]::WriteAllText((Join-Path $userSkill 'SKILL.md'), '# user skill', [Text.UTF8Encoding]::new($false))
+        $configPath = Join-Path $github 'config\verisolve.verification.json'
+        $originalConfig = [IO.File]::ReadAllText($configPath, [Text.Encoding]::UTF8)
+        $instructions = Join-Path $github 'copilot-instructions.md'
+
+        $result = Invoke-VSReleaseScript -Path $cleanup -Arguments @('-Mode', 'uninstall', '-Workspace', $workspace, '-ConfirmUninstall')
         Assert-VSEqual 'uninstalled' $result.mode 'uninstall completed'
-        Assert-VSTrue (Test-Path -LiteralPath $modified) 'modified file is retained'
-        Assert-VSTrue ($result.retained -join ' ' -like '*modified since scaffold*') 'retained file is explained'
-        Assert-VSTrue (-not (Test-Path -LiteralPath (Join-Path $targetGithub 'agents\verisolve.agent.md'))) 'unmodified agent file removed'
-        Assert-VSTrue (-not (Test-Path -LiteralPath (Join-Path $targetGithub 'playbook\pending-verifications.json'))) 'pending state cleared'
-        Assert-VSTrue (-not (Test-Path -LiteralPath (Join-Path $targetGithub 'verisolve-init.manifest.json'))) 'manifest removed'
-    } finally { Remove-VSSandbox -Path $workspace }
-}
 
-Invoke-VSTest 'cleanup-refuses-without-ownership-manifest' {
-    $workspace = New-VSWorkspace
-    try {
-        $null = New-Item -ItemType Directory -Path (Join-Path $workspace '.github\playbook') -Force
-        [IO.File]::WriteAllText((Join-Path $workspace '.github\playbook\pending-verifications.json'), '{"schema_version":1,"pending":[],"completed":[],"infra_failed":[]}', [Text.UTF8Encoding]::new($false))
-        $result = Invoke-VSScriptJson -Path $cleanupScript -Arguments @('-Mode', 'uninstall', '-Workspace', $workspace, '-ConfirmUninstall')
-        Assert-VSEqual 0 @($result.deletable).Count 'nothing is deletable without a manifest'
-        Assert-VSTrue ($result.retained -join ' ' -like '*No VeriSolve init ownership manifest*') 'missing manifest is explained'
-        Assert-VSTrue (Test-Path -LiteralPath (Join-Path $workspace '.github\playbook\pending-verifications.json')) 'state is preserved without an ownership manifest'
+        $backupRoot = Join-Path $workspace ($result.backup_path -replace '/', '\')
+        Assert-VSTrue (Test-Path -LiteralPath $backupRoot -PathType Container) 'backup directory created'
+        Assert-VSTrue ($result.backup_path -like '.github/verisolve-backup-*') 'backup path is timestamped under .github'
+        $backedUp = Join-Path $backupRoot 'config-verisolve.verification.json'
+        Assert-VSTrue (Test-Path -LiteralPath $backedUp) 'config backed up before deletion'
+        Assert-VSEqual $originalConfig ([IO.File]::ReadAllText($backedUp, [Text.Encoding]::UTF8)) 'backup content matches'
+
+        Assert-VSTrue (-not (Test-Path -LiteralPath (Join-Path $github 'agents\verisolve.agent.md'))) 'scaffolded agent removed'
+        Assert-VSTrue (-not (Test-Path -LiteralPath $configPath)) 'config removed'
+        Assert-VSTrue (-not (Test-Path -LiteralPath (Join-Path $github 'playbook'))) 'playbook removed'
+        Assert-VSTrue (-not (Test-Path -LiteralPath (Join-Path $github 'skills\fetch-backlog'))) 'scaffolded skill removed'
+        Assert-VSTrue (-not (Test-Path -LiteralPath (Join-Path $github 'skills\verisolve-init'))) 'installer directory removed'
+        Assert-VSTrue (-not (Test-Path -LiteralPath (Join-Path $github 'skills\verisolve-cleanup'))) 'cleanup removed itself last'
+
+        Assert-VSTrue (Test-Path -LiteralPath $userAgent) 'user agent preserved'
+        Assert-VSTrue (Test-Path -LiteralPath $userSkill) 'user skill preserved'
+        Assert-VSTrue (Test-Path -LiteralPath $instructions) 'copilot-instructions.md preserved'
+
+        $deleted = @($result.deleted)
+        $selfIndex = [Array]::IndexOf($deleted, 'skills/verisolve-cleanup/')
+        $initIndex = [Array]::IndexOf($deleted, 'skills/verisolve-init/')
+        Assert-VSTrue ($selfIndex -ge 0) 'self directory appears in the deletion report'
+        Assert-VSTrue ($initIndex -lt $selfIndex) 'installer directory is deleted before the cleanup skill itself'
+        Assert-VSEqual ($deleted.Count - 1) $selfIndex 'cleanup skill is the final deletion'
     } finally { Remove-VSSandbox -Path $workspace }
 }

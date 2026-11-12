@@ -4,6 +4,11 @@ Executable form: `tests/acceptance.ps1`. Every item below maps to a named case i
 `tests/cases/*.ps1`; run `pwsh tests/acceptance.ps1` and require
 `passed=N failed=0`.
 
+The suite releases the shipped payload once with the real
+`.github/skills/verisolve-init/scripts/scaffold.ps1`, then clones that scaffold
+for every case. Nothing is tested against a hand-maintained live `.github` tree,
+so the artefact under test is exactly what users install.
+
 ## A. Contracts and configuration (`01-contracts.ps1`)
 
 - [x] `config-set-loads-and-validates` — all six JSON configs parse and pass the
@@ -91,16 +96,33 @@ Executable form: `tests/acceptance.ps1`. Every item below maps to a named case i
 - [x] `verify-start-rejects-invalid-change-before-any-external-call`.
 - [x] `verify-pending-state-survives-concurrent-check-and-start`.
 
-## D. Scaffolding and uninstall (`04-scaffold.ps1`)
+## D. Release payload: init and uninstall (`04-scaffold.ps1`)
 
-- [x] `init-scaffolds-the-linked-system` — full tree plus ownership manifest.
-- [x] `init-reports-unconfigured-external-integrations`.
-- [x] `init-refuses-to-overwrite-and-inspect-detects-resume`.
-- [x] `cleanup-plan-is-non-destructive-and-explicit` — plan deletes nothing and
-  warns that external pipelines keep running; uninstall without confirmation is
-  refused.
-- [x] `cleanup-removes-scaffold-retains-modified-files-and-clears-pending`.
-- [x] `cleanup-refuses-without-ownership-manifest`.
+- [x] `check-prerequisites-reports-environment-readonly` — pwsh 7, git, and every
+  command placeholder reported; the check creates nothing.
+- [x] `check-prerequisites-never-exits-nonzero` — missing prerequisites never
+  abort the script.
+- [x] `detect-state-reports-init-before-scaffolding` — `scaffolded:false`,
+  `suggested_action:"init"`, no files created.
+- [x] `detect-state-reads-pending-and-last-run-without-orchestrating` — pending
+  count, last-run resolved/skipped/escalation counts, and pending state is not
+  rewritten.
+- [x] `scaffold-releases-the-whole-linked-system` — 40+ files released,
+  `pending-verifications.json` seeded as `[]`, empty `events.log`, version-0
+  snapshot.
+- [x] `scaffold-is-idempotent-and-preserves-user-edits` — second run creates
+  nothing, reports every file as skipped, and keeps user edits.
+- [x] `scaffold-rolls-back-when-templates-are-incomplete` — missing template
+  fails with exit 1 and removes everything released by that run.
+- [x] `scaffold-keeps-existing-copilot-instructions` — a user-authored
+  `copilot-instructions.md` is skipped, never overwritten.
+- [x] `cleanup-plan-is-read-only` — plan lists deletions and warns that external
+  pipelines keep running, changing nothing.
+- [x] `cleanup-refuses-without-confirmation`.
+- [x] `cleanup-backs-up-then-deletes-allowlist-and-itself-last` — timestamped
+  backup under `.github/verisolve-backup-*`, allowlist-only deletion, user
+  agents/skills and `copilot-instructions.md` retained, cleanup directory
+  deleted last.
 
 ## E. CLI and structural invariants (`05-cli-invariants.ps1`)
 
@@ -118,6 +140,10 @@ Executable form: `tests/acceptance.ps1`. Every item below maps to a named case i
 - [x] `every-skill-is-invoked-from-an-agent-or-workflow`.
 - [x] `all-powershell-parses-under-pwsh-7`.
 - [x] `config-keys-are-consumed-outside-the-config-folder`.
+- [x] `release-payload-is-the-only-deliverable-and-stays-inert` — the repository
+  `.github` holds only `skills/verisolve-init`, no live `agents/config/contracts/
+  playbook/workflows/lib`, three agent templates, no agent file nested under
+  `skills/`, and the reference documents skill-local-inertness plus reload.
 
 ## F. Manual checks that require a real pipeline
 

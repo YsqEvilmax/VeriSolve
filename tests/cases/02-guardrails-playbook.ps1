@@ -1,5 +1,5 @@
 # Guardrail, Playbook, and scheduling acceptance cases.
-$githubRoot = Join-Path $script:Root '.github'
+$githubRoot = $script:BaseGithub
 $config = Get-VSConfigSet -GithubRoot $githubRoot
 $guardrails = $config.verification.guardrails
 

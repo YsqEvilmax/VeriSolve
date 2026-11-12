@@ -1,20 +1,17 @@
 # CLI behaviour and static structure invariant acceptance cases.
-$githubRoot = Join-Path $script:Root '.github'
+$githubRoot = $script:BaseGithub
 $config = Get-VSConfigSet -GithubRoot $githubRoot
 
 Write-VSSection 'CLI surface'
 
 function New-VSCliWorkspace {
-    $path = Join-Path ([IO.Path]::GetTempPath()) ("verisolve-cli-" + [guid]::NewGuid().ToString('N'))
-    $null = New-Item -ItemType Directory -Path $path -Force
-    Copy-Item -LiteralPath (Join-Path $script:Root '.github') -Destination (Join-Path $path '.github') -Recurse -Force
-    Copy-Item -LiteralPath (Join-Path $script:Root 'scripts') -Destination (Join-Path $path 'scripts') -Recurse -Force
-    return $path
+    # A scaffolded workspace is what the developer CLI is meant to operate on.
+    return New-VSSandbox
 }
 
 function Invoke-VSCli {
     param([Parameter(Mandatory)][string]$Workspace, [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Arguments, [hashtable]$Env = @{})
-    return Invoke-VSScript -Path (Join-Path $Workspace 'scripts\verisolve.ps1') -Arguments $Arguments -Env $Env
+    return Invoke-VSScript -Path $script:CliScript -Arguments (@('--workspace', $Workspace) + $Arguments) -Env $Env
 }
 
 function Invoke-VSCliJson {
@@ -226,7 +223,13 @@ Invoke-VSTest 'every-skill-is-invoked-from-an-agent-or-workflow' {
         (Join-Path $githubRoot 'workflows\high-risk-review.workflow.md')
     )
     $referenceText = ($referencingFiles | ForEach-Object { if (Test-Path -LiteralPath $_) { [IO.File]::ReadAllText($_, [Text.Encoding]::UTF8) } }) -join "`n"
+    $userInvoked = @('verisolve-init', 'verisolve-cleanup')
     foreach ($directory in @(Get-ChildItem -LiteralPath (Join-Path $githubRoot 'skills') -Directory)) {
+        if ($userInvoked -ccontains $directory.Name) {
+            $content = [IO.File]::ReadAllText((Join-Path $directory.FullName 'SKILL.md'), [Text.Encoding]::UTF8)
+            Assert-VSTrue ($content -match 'Called by') "$($directory.Name) documents that the user invokes it directly"
+            continue
+        }
         Assert-VSTrue ($referenceText -match [regex]::Escape($directory.Name)) "skill '$($directory.Name)' is referenced by an agent or workflow"
     }
 }
@@ -245,22 +248,47 @@ Invoke-VSTest 'all-powershell-parses-under-pwsh-7' {
 
 Invoke-VSTest 'config-keys-are-consumed-outside-the-config-folder' {
     $roots = @(
-        (Join-Path $githubRoot 'agents'),
-        (Join-Path $githubRoot 'skills'),
-        (Join-Path $githubRoot 'workflows'),
-        (Join-Path $githubRoot 'lib'),
+        (Join-Path $script:Templates 'agents'),
+        (Join-Path $script:Templates 'skills'),
+        (Join-Path $script:Templates 'workflows'),
+        (Join-Path $script:Templates 'lib'),
+        (Join-Path $script:ReleaseSkill 'scripts'),
         (Join-Path $script:Root 'scripts'),
-        (Join-Path $script:Root 'docs'),
-        (Join-Path $githubRoot 'copilot-instructions.md')
+        $script:References,
+        (Join-Path $script:Templates 'copilot-instructions.md')
     )
     $consumers = @(Get-ChildItem -LiteralPath $roots -Recurse -Include '*.ps1', '*.md' -File -ErrorAction SilentlyContinue)
     $consumerText = ($consumers | ForEach-Object { [IO.File]::ReadAllText($_.FullName, [Text.Encoding]::UTF8) }) -join "`n"
     $unused = [System.Collections.Generic.List[string]]::new()
     foreach ($name in @('system', 'agents', 'categories', 'verification', 'knowledge_base', 'cli')) {
-        $configValue = Get-Content -LiteralPath (Join-Path $githubRoot "config\verisolve.$name.json") -Raw -Encoding utf8 | ConvertFrom-Json -AsHashtable
+        $configValue = Get-Content -LiteralPath (Join-Path $script:Templates "config\verisolve.$name.json") -Raw -Encoding utf8 | ConvertFrom-Json -AsHashtable
         foreach ($key in $configValue.Keys) {
             if ($consumerText -notmatch [regex]::Escape([string]$key)) { $unused.Add("verisolve.$name.json#$key") }
         }
     }
     Assert-VSEqual 0 $unused.Count ("settings without a consumer: " + ($unused -join ', '))
+}
+
+Invoke-VSTest 'release-payload-is-the-only-deliverable-and-stays-inert' {
+    $repoGithub = Join-Path $script:Root '.github'
+    $topLevel = @(Get-ChildItem -LiteralPath $repoGithub -Force | ForEach-Object { $_.Name })
+    Assert-VSEqual 'skills' ($topLevel -join ',') 'repository .github only carries the release skill directory'
+
+    foreach ($inert in @('agents', 'config', 'contracts', 'playbook', 'workflows', 'lib')) {
+        Assert-VSTrue (-not (Test-Path -LiteralPath (Join-Path $repoGithub $inert))) "no live .github/$inert before scaffolding"
+    }
+    Assert-VSTrue (-not (Test-Path -LiteralPath (Join-Path $repoGithub 'copilot-instructions.md'))) 'no live copilot-instructions.md before scaffolding'
+
+    $templateAgents = @(Get-ChildItem -LiteralPath (Join-Path $script:Templates 'agents') -Filter '*.agent.md' -File)
+    Assert-VSEqual 3 $templateAgents.Count 'exactly three agent templates ship in the payload'
+    $strayAgents = @(Get-ChildItem -LiteralPath $script:Templates -Recurse -Filter '*.agent.md' -File |
+            Where-Object { $_.DirectoryName -ne (Join-Path $script:Templates 'agents') })
+    Assert-VSEqual 0 $strayAgents.Count 'no agent templates live inside skills/ (they would never load)'
+
+    $architecture = Join-Path $script:References 'architecture.md'
+    Assert-VSTrue (Test-Path -LiteralPath $architecture) 'architecture reference ships with the payload'
+    $architectureText = [IO.File]::ReadAllText($architecture, [Text.Encoding]::UTF8)
+    Assert-VSTrue ($architectureText -match 'inside a skill directory is not an Agent') 'reference documents that skill-local agents never load'
+    Assert-VSTrue ($architectureText -match 'session initialisation') 'reference documents agent discovery timing'
+    Assert-VSTrue ($architectureText -match 'reload') 'reference documents the reload requirement'
 }

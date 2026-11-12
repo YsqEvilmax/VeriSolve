@@ -3,17 +3,27 @@
 
 . (Join-Path $PSScriptRoot '..\..\lib\vs-filelock.ps1')
 
+function New-VSEmptyPendingState {
+    return [ordered]@{ schema_version = 1; pending = @(); completed = @(); infra_failed = @() }
+}
+
 function Read-VSPendingState {
     param([Parameter(Mandatory)][string]$Path)
-    if (-not [IO.File]::Exists($Path)) {
-        return [ordered]@{ schema_version = 1; pending = @(); completed = @(); infra_failed = @() }
+    if (-not [IO.File]::Exists($Path)) { return New-VSEmptyPendingState }
+    $text = [IO.File]::ReadAllText($Path, [Text.Encoding]::UTF8)
+    if ([string]::IsNullOrWhiteSpace($text)) { return New-VSEmptyPendingState }
+    $parsed = $text | ConvertFrom-Json -AsHashtable
+    if ($text.TrimStart().StartsWith('[')) {
+        # scaffold.ps1 seeds an empty array; accept a bare array as the pending list and upgrade to
+        # the canonical object shape on the next write. ConvertFrom-Json yields no output for `[]`,
+        # so the array wrapper is what preserves the empty case.
+        return [ordered]@{ schema_version = 1; pending = @($parsed); completed = @(); infra_failed = @() }
     }
-    $state = [IO.File]::ReadAllText($Path, [Text.Encoding]::UTF8) | ConvertFrom-Json -AsHashtable
-    if ($state.schema_version -ne 1 -or $state.pending -isnot [System.Collections.IList] -or
-        $state.completed -isnot [System.Collections.IList] -or $state.infra_failed -isnot [System.Collections.IList]) {
+    if ($parsed.schema_version -ne 1 -or $parsed.pending -isnot [System.Collections.IList] -or
+        $parsed.completed -isnot [System.Collections.IList] -or $parsed.infra_failed -isnot [System.Collections.IList]) {
         throw "Pending verification state '$Path' has an invalid shape."
     }
-    return $state
+    return $parsed
 }
 
 function Write-VSPendingState {

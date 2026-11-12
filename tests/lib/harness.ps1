@@ -3,9 +3,36 @@ $ErrorActionPreference = 'Stop'
 
 $script:Root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $script:Pwsh = (Get-Command pwsh -ErrorAction Stop).Source
+$script:ReleaseSkill = Join-Path $script:Root '.github\skills\verisolve-init'
+$script:PrerequisiteScript = Join-Path $script:ReleaseSkill 'scripts\check-prerequisites.ps1'
+$script:DetectScript = Join-Path $script:ReleaseSkill 'scripts\detect-state.ps1'
+$script:ScaffoldScript = Join-Path $script:ReleaseSkill 'scripts\scaffold.ps1'
+$script:Templates = Join-Path $script:ReleaseSkill 'templates'
+$script:References = Join-Path $script:ReleaseSkill 'references'
+$script:CliScript = Join-Path $script:Root 'scripts\verisolve.ps1'
 $script:Passed = 0
 $script:Failed = 0
 $script:FailureMessages = [System.Collections.Generic.List[string]]::new()
+
+function New-VSTempDirectory {
+    param([string]$Prefix = 'verisolve')
+    $path = Join-Path ([IO.Path]::GetTempPath()) ("$Prefix-" + [guid]::NewGuid().ToString('N'))
+    $null = New-Item -ItemType Directory -Path $path -Force
+    return $path
+}
+
+function Initialize-VSReleaseWorkspace {
+    # Releases the payload with the real scaffold script so every fixture exercises the shipped artefact.
+    $workspace = New-VSTempDirectory -Prefix 'verisolve-base'
+    & $script:Pwsh -NoProfile -File $script:ScaffoldScript -Workspace $workspace | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Baseline scaffold failed for '$workspace'." }
+    $releaseTarget = Join-Path $workspace '.github\skills\verisolve-init'
+    Copy-Item -LiteralPath $script:ReleaseSkill -Destination $releaseTarget -Recurse -Force
+    return $workspace
+}
+
+$script:BaseWorkspace = Initialize-VSReleaseWorkspace
+$script:BaseGithub = Join-Path $script:BaseWorkspace '.github'
 
 function Write-VSSection {
     param([Parameter(Mandatory)][string]$Title)
@@ -71,9 +98,9 @@ function Assert-VSThrows {
 }
 
 function New-VSSandbox {
-    $path = Join-Path ([IO.Path]::GetTempPath()) ("verisolve-acceptance-" + [guid]::NewGuid().ToString('N'))
-    $null = New-Item -ItemType Directory -Path $path -Force
-    Copy-Item -LiteralPath (Join-Path $script:Root '.github') -Destination (Join-Path $path '.github') -Recurse -Force
+    # Clone the already-released baseline so per-case mutations never leak into other cases.
+    $path = New-VSTempDirectory -Prefix 'verisolve-acceptance'
+    Copy-Item -LiteralPath $script:BaseGithub -Destination (Join-Path $path '.github') -Recurse -Force
     $playbook = Join-Path $path '.github\playbook'
     foreach ($artifact in @('event-queue.log', 'playbook-writer.lock', 'pending-verifications.lock', 'poller.log', 'poller.error.log')) {
         $candidate = Join-Path $playbook $artifact

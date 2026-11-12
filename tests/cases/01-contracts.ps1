@@ -1,5 +1,5 @@
 # Contract, configuration, and high-risk boundary acceptance cases.
-$githubRoot = Join-Path $script:Root '.github'
+$githubRoot = $script:BaseGithub
 $config = Get-VSConfigSet -GithubRoot $githubRoot
 
 Write-VSSection 'Configuration and JSON Schemas'

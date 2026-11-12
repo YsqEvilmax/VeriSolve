@@ -1,14 +1,35 @@
 # VeriSolve architecture
 
 VeriSolve is a verification-driven continuous problem resolution system that
-runs as an **AI Agent Assistant hosted by VS Code Copilot**. The repository
-publishes a Copilot-loadable package (`.github/agents`, `.github/skills`,
-`.github/workflows`, `.github/contracts`, `.github/config`) plus a thin local
-CLI. Nothing here requires a third-party agent runtime.
+runs as an **AI Agent Assistant hosted by VS Code Copilot**.
 
-- `host` is always VS Code Copilot; it is declared in `config/verisolve.cli.json`.
-- Reasoning lives in exactly two Agent definitions. Everything else is
-  deterministic code, declarative workflow, or JSON configuration.
+## 0. Release shape and Copilot loading mechanism
+
+The single delivery artifact is the directory
+`.github/skills/verisolve-init/`. It carries the installer (`SKILL.md`,
+`scripts/`), the whole system skeleton (`templates/`), and the architecture
+reference (`references/architecture.md`). A user copies that one directory into
+their repository, triggers `/verisolve-init` in Copilot Chat, and the skill
+releases `templates/` into `.github/{agents,skills,config,contracts,playbook,workflows,lib}`.
+
+Three loading rules must always be honoured:
+
+1. **An `.agent.md` inside a skill directory is not an Agent.** Copilot only
+   discovers agents from `.github/agents/`. Anything under
+   `.github/skills/**` is a plain resource file, so `templates/agents/*.agent.md`
+   is inert until scaffolded.
+2. **Agent discovery happens at session initialisation.** After scaffolding, the
+   new agents do not appear in the chat agent picker until the VS Code window is
+   reloaded or a new session is started.
+3. Therefore `verisolve-init` only detects, releases, and guides. It never acts
+   as the VeriSolve runtime entry point; after scaffolding it must print the
+   reload instruction and stop. Orchestration belongs to
+   `.github/agents/verisolve.agent.md`.
+
+`host` is always VS Code Copilot; it is declared in `config/verisolve.cli.json`.
+Reasoning lives in exactly two Agent definitions. Everything else is
+deterministic code, declarative workflow, or JSON configuration.
+
 
 ## 1. System boundaries
 
@@ -38,12 +59,13 @@ Layering rules:
 
 | Layer | Location | May contain |
 | --- | --- | --- |
-| Agent definitions | `.github/agents/*.agent.md` | Instructions, tool lists, bounded input/output contracts |
-| Declarative orchestration | `.github/workflows/*.workflow.md` | Ordered steps, branching, retry/escalation policy |
-| Skills | `.github/skills/<name>/SKILL.md` + `run.ps1` | IO transport, deterministic rule evaluation |
-| Shared deterministic primitives | `.github/lib/*.ps1` | Validation, locking, replay, scoring, ordering |
-| Configuration | `.github/config/*.json` | Every bound, threshold, weight, path, and command |
-| Contracts | `.github/contracts/*.schema.json` | `VSProblem`, `VSVerdict`, `VSChange` |
+| Release artifact | `.github/skills/verisolve-init/` | Installer skill, templates, architecture reference |
+| Agent definitions | `templates/agents/*.agent.md` → `.github/agents/` | Instructions, tool lists, bounded input/output contracts |
+| Declarative orchestration | `templates/workflows/*.workflow.md` → `.github/workflows/` | Ordered steps, branching, retry/escalation policy |
+| Skills | `templates/skills/<name>/SKILL.md` + `run.ps1` | IO transport, deterministic rule evaluation |
+| Shared deterministic primitives | `templates/lib/*.ps1` → `.github/lib/` | Validation, locking, replay, scoring, ordering |
+| Configuration | `templates/config/*.json` → `.github/config/` | Every bound, threshold, weight, path, and command |
+| Contracts | `templates/contracts/*.schema.json` → `.github/contracts/` | `VSProblem`, `VSVerdict`, `VSChange` |
 
 A `.psm1` module is never used, and PowerShell never carries orchestration,
 ranking judgment, verdict authorship, or reasoning.
@@ -222,19 +244,40 @@ hard-coded.
 a built-in, must match `^[a-z0-9_]{1,64}$`, and must be unique; violations fail
 at startup. Extension never redefines an existing built-in category.
 
-## 11. Delivery shape
+## 11. Delivery, install, and uninstall
 
-- **Install/resume**: `verisolve-init` (`context: fork`) scaffolds the whole
-  tree, records an ownership manifest with SHA-256 hashes, reports unconfigured
-  integrations, and on later runs detects the existing system and reports
-  pending work.
-- **Uninstall**: `verisolve-cleanup` shows a plan first, refuses to delete
-  anything without an ownership manifest, retains files modified after
-  scaffolding, and requires explicit confirmation.
-- **Local CLI**: `scripts/verisolve.ps1` dispatches `validate`, `run`, `rank`,
-  `status`, `report`, `kb`, `init`, and `cleanup`. It prepares batches and
-  renders reports; it never reasons. Reports always carry archived, skipped, and
-  escalation lists plus the Playbook hit rate in both `md` and `json` forms.
+**Install / resume** — `verisolve-init` (`context: fork`) runs three read-then-act
+steps:
+
+1. `scripts/check-prerequisites.ps1` (read-only) reports `pwsh` >= 7, `git`, and
+   every unfinished command placeholder in `verisolve.cli.json`. It always exits
+   0; the Skill decides whether to continue.
+2. `scripts/detect-state.ps1` (read-only) reports
+   `{scaffolded, pending_count, last_run, suggested_action}`. When
+   `scaffolded=true` the Skill only summarises state and tells the user to switch
+   to the VeriSolve agent — it never orchestrates.
+3. `scripts/scaffold.ps1` validates `templates/` completeness, copies anything
+   missing, and skips whatever already exists. Any failure rolls back the files
+   created by that run and exits 1. `playbook/pending-verifications.json` is
+   seeded as `[]`; `verify-change` treats `[]` or a missing file as empty state
+   and upgrades to the canonical object shape on the first write.
+
+After scaffolding the Skill must print the reload instruction: Copilot does not
+load newly scaffolded agents until the window reloads or a new session starts.
+
+**Uninstall** — `verisolve-cleanup` prints a read-only plan first, then on
+explicit `-ConfirmUninstall` backs up `config/verisolve.*.json` (plus Playbook
+state) to `.github/verisolve-backup-<UTC timestamp>/`, deletes only its
+allowlisted files and directories, and removes its own skill directory last.
+It never deletes `.github/copilot-instructions.md` or any user-authored agent or
+skill, and it never claims that external pipelines were cancelled.
+
+**Local CLI** — `scripts/verisolve.ps1` is a developer tool, not part of the
+release payload. It accepts `--workspace <path>` (default: current directory) and
+dispatches `validate`, `run`, `rank`, `status`, `report`, `kb`, `init`, and
+`cleanup`. It prepares batches and renders reports; it never reasons. Reports
+always carry archived, skipped, and escalation lists plus the Playbook hit rate
+in both `md` and `json` forms.
 
 ## 12. Verification of the design
 

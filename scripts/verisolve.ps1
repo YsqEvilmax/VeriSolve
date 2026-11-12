@@ -9,7 +9,25 @@ if ($Arguments.Count -eq 0) {
 }
 
 $projectRoot = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
-$github = Join-Path $projectRoot '.github'
+$effectiveArguments = [System.Collections.Generic.List[string]]::new()
+$workspaceArgument = $null
+for ($index = 0; $index -lt $Arguments.Count; $index++) {
+    if ($Arguments[$index] -ceq '--workspace' -and $index + 1 -lt $Arguments.Count) {
+        $workspaceArgument = $Arguments[$index + 1]
+        $index++
+        continue
+    }
+    $effectiveArguments.Add($Arguments[$index])
+}
+if ($effectiveArguments.Count -eq 0) {
+    throw 'Usage: verisolve.ps1 <command> [options] [--workspace <path>]'
+}
+$workspaceRoot = if ([string]::IsNullOrWhiteSpace($workspaceArgument)) {
+    $projectRoot
+} else {
+    [IO.Path]::GetFullPath($workspaceArgument)
+}
+$github = Join-Path $workspaceRoot '.github'
 $pwshExe = (Get-Command pwsh -ErrorAction Stop).Source
 . (Join-Path $github 'lib\vs-contracts.ps1')
 . (Join-Path $github 'lib\vs-filelock.ps1')
@@ -44,8 +62,8 @@ function Invoke-VSChildScript {
     return (($output | ForEach-Object { "$_" }) -join [Environment]::NewLine)
 }
 
-$command = $Arguments[0]
-$options = @($Arguments | Select-Object -Skip 1)
+$command = $effectiveArguments[0]
+$options = @($effectiveArguments | Select-Object -Skip 1)
 $config = Read-VSConfigSet -GithubRoot $github
 Assert-VSConfigSet -Config $config
 $runStore = [IO.Path]::GetFullPath((Join-Path $github ([string]$config.cli.run_store_path)))
@@ -376,14 +394,19 @@ switch -CaseSensitive ($command) {
         }
     }
     'init' {
-        $mode = Get-VSOption -Tokens $options -Name 'mode' -Default 'inspect'
-        [Console]::Out.Write((Invoke-VSChildScript -Path (Join-Path $github 'skills\verisolve-init\run.ps1') -ScriptArguments @('-Mode', $mode, '-Workspace', $projectRoot)))
+        $mode = Get-VSOption -Tokens $options -Name 'mode' -Default 'scaffold'
+        switch -CaseSensitive ($mode) {
+            'prerequisites' { [Console]::Out.Write((Invoke-VSChildScript -Path (Join-Path $github 'skills\verisolve-init\scripts\check-prerequisites.ps1') -ScriptArguments @('-Workspace', $workspaceRoot))) }
+            'inspect' { [Console]::Out.Write((Invoke-VSChildScript -Path (Join-Path $github 'skills\verisolve-init\scripts\detect-state.ps1') -ScriptArguments @('-Workspace', $workspaceRoot))) }
+            'scaffold' { [Console]::Out.Write((Invoke-VSChildScript -Path (Join-Path $github 'skills\verisolve-init\scripts\scaffold.ps1') -ScriptArguments @('-Workspace', $workspaceRoot))) }
+            default { throw "Unknown init mode '$mode'. Use prerequisites|inspect|scaffold." }
+        }
     }
     'cleanup' {
         $mode = Get-VSOption -Tokens $options -Name 'mode' -Default 'plan'
-        $cleanupArguments = @('-Mode', $mode, '-Workspace', $projectRoot)
+        $cleanupArguments = @('-Mode', $mode, '-Workspace', $workspaceRoot)
         if (Test-VSFlag -Tokens $options -Name 'confirm') { $cleanupArguments += '-ConfirmUninstall' }
-        [Console]::Out.Write((Invoke-VSChildScript -Path (Join-Path $github 'skills\verisolve-cleanup\run.ps1') -ScriptArguments $cleanupArguments))
+        [Console]::Out.Write((Invoke-VSChildScript -Path (Join-Path $github 'skills\verisolve-cleanup\scripts\cleanup.ps1') -ScriptArguments $cleanupArguments))
     }
     default { throw "Unsupported VeriSolve command '$command'." }
 }

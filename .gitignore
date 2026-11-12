@@ -1,4 +1,5 @@
 # VeriSolve runtime artifacts (local, never committed)
+# These paths only exist in a scaffolded target workspace, not in this payload repository.
 .github/playbook/event-queue.log
 .github/playbook/playbook-writer.lock
 .github/playbook/pending-verifications.lock
@@ -7,5 +8,5 @@
 .github/playbook/poller.log
 .github/playbook/poller.error.log
 .github/playbook/runs/
-.github/verisolve-init.manifest.json
+.github/verisolve-backup-*/
 *.tmp
