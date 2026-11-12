@@ -24,8 +24,13 @@ the **VeriSolve** agent. See [Install](#2-install) below.
   `check` performs bounded status queries. A 3-hour pipeline never blocks Copilot.
 - Every limit, weight, threshold, path, and external command lives in JSON.
 
-Design and invariants:
-[`.github/skills/verisolve-init/references/architecture.md`](.github/skills/verisolve-init/references/architecture.md).
+Two documents, split by audience:
+
+- Installer mechanics and the three script contracts:
+  [`.github/skills/verisolve-init/references/loading-and-contracts.md`](.github/skills/verisolve-init/references/loading-and-contracts.md)
+- Runtime design and invariants:
+  [`.github/skills/verisolve-init/templates/references/architecture.md`](.github/skills/verisolve-init/templates/references/architecture.md)
+  (released to `.github/references/architecture.md`)
 
 ---
 
@@ -50,10 +55,11 @@ Design and invariants:
 │   ├── playbook/                     events.log (empty), snapshot.json (v0),
 │   │                                 pending-verifications.json ([])
 │   ├── lib/                          vs-{contracts,filelock,playbook,schedule}.ps1
+│   ├── references/                   architecture.md → .github/references/
 │   ├── workflows/                    run-pipeline, high-risk-review
 │   └── copilot-instructions.md       project-level constraints (skipped if present)
 └── references/
-    └── architecture.md               architecture, invariants, Copilot loading rules
+    └── loading-and-contracts.md      installer mechanics + script contracts
 ```
 
 Repository-only tooling (not part of the release): `scripts/verisolve.ps1` (local
@@ -95,7 +101,7 @@ It will:
 2. detect whether VeriSolve is already scaffolded — if it is, it only summarises
    `resolved / pending / outstanding` and tells you to switch agents;
 3. otherwise release `templates/` into `.github/{agents,skills,config,contracts,
-   playbook,workflows,lib}`, skipping anything that already exists;
+   playbook,workflows,lib,references}`, skipping anything that already exists;
 4. tell you which integration commands are still placeholders;
 5. print the reload instruction.
 
@@ -167,7 +173,9 @@ The uninstaller backs up `.github/config/verisolve.*.json` (plus Playbook state)
 to `.github/verisolve-backup-<timestamp>/`, deletes only its allowlisted files and
 directories, and removes its own skill directory last. It never deletes
 `copilot-instructions.md` or your own agents/skills, and it never claims that
-external pipelines were cancelled.
+external pipelines were cancelled. The released
+`.github/references/architecture.md` is deleted with the rest of the allowlist
+and is not backed up (it is shipped documentation, not user configuration).
 
 ## 6. Local CLI (repository tooling)
 
@@ -198,7 +206,7 @@ hit rate.
 ## 7. Tests
 
 ```powershell
-pwsh tests/acceptance.ps1          # full suite (80 cases)
+pwsh tests/acceptance.ps1          # full suite (83 cases)
 pwsh tests/acceptance.ps1 -Only 04 # one case file
 ```
 

@@ -5,7 +5,8 @@
   reasoning kind. Review is ResolverAgent's review mode.
 - Use only the contracts and JSON configuration in `.github/config/` and
   `.github/contracts/`. Treat configured limits as authoritative and fail fast
-  on invalid settings.
+  on invalid settings. The runtime design and invariant list live in
+  `.github/references/architecture.md`; read it before changing behaviour.
 - Never send open containers (`raw`, `features`, `artifacts`, `metadata`) to an
   Agent. Only explicitly extracted, bounded fields may enter projections:
   `problem_id`, triage `category`, `severity`, `keywords`, an optional

@@ -52,7 +52,7 @@ $skillDirectories = @(
     'skills/verisolve-init'
     'skills/verisolve-cleanup'
 )
-$supportDirectories = @('lib', 'playbook')
+$supportDirectories = @('lib', 'playbook', 'references')
 
 function ConvertTo-VSFullPath {
     param([Parameter(Mandatory)][string]$Relative)

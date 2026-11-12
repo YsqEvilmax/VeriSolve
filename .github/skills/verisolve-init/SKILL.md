@@ -110,8 +110,9 @@ pwsh -NoProfile -File .github/skills/verisolve-init/scripts/scaffold.ps1 -Worksp
 > 外部配置未完成的项请先补齐。
 
 原因：Copilot 的 Agent 发现发生在会话初始化阶段；本 Skill 目录内的
-`.agent.md` 只是被复制的资源文件，**不会**被当作 Agent 加载。详见
-`references/architecture.md`。
+`.agent.md` 只是被复制的资源文件，**不会**被当作 Agent 加载。平台细节与三个脚本的
+机器契约见 `references/loading-and-contracts.md`；系统设计与不变量见
+`templates/references/architecture.md`（释放后为 `.github/references/architecture.md`）。
 
 ### 7. 禁止事项
 

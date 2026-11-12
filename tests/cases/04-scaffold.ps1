@@ -116,7 +116,8 @@ Invoke-VSTest 'scaffold-releases-the-whole-linked-system' {
                 'skills/verify-change/pending-store.ps1', 'skills/rank-and-schedule/run.ps1',
                 'skills/verisolve-cleanup/SKILL.md', 'skills/verisolve-cleanup/scripts/cleanup.ps1',
                 'config/verisolve.verification.json', 'contracts/vs-change.schema.json',
-                'lib/vs-contracts.ps1', 'workflows/run-pipeline.workflow.md',
+                'lib/vs-contracts.ps1', 'references/architecture.md',
+                'workflows/run-pipeline.workflow.md',
                 'playbook/events.log', 'playbook/snapshot.json', 'playbook/pending-verifications.json',
                 'copilot-instructions.md'
             )) {
@@ -244,6 +245,8 @@ Invoke-VSTest 'cleanup-backs-up-then-deletes-allowlist-and-itself-last' {
         Assert-VSTrue (Test-Path -LiteralPath $userAgent) 'user agent preserved'
         Assert-VSTrue (Test-Path -LiteralPath $userSkill) 'user skill preserved'
         Assert-VSTrue (Test-Path -LiteralPath $instructions) 'copilot-instructions.md preserved'
+        Assert-VSTrue (-not (Test-Path -LiteralPath (Join-Path $github 'references'))) 'shipped reference documentation removed'
+        Assert-VSTrue (@($result.backup_files) -notcontains 'references-architecture.md') 'shipped documentation is never backed up'
 
         $deleted = @($result.deleted)
         $selfIndex = [Array]::IndexOf($deleted, 'skills/verisolve-cleanup/')

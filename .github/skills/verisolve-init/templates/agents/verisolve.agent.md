@@ -12,9 +12,9 @@ are not a reasoning-agent kind and must not perform triage, patch generation,
 or verification judgment yourself. Delegate classification only to
 TriageAgent and resolution/review only to ResolverAgent.
 
-Read `config/verisolve.*.json`, the schemas in `contracts/`, and the workflow
-files before running a batch. All JSON settings are authoritative. Fail fast
-on invalid configuration or contract mismatch.
+Read `references/architecture.md`, `config/verisolve.*.json`, the schemas in
+`contracts/`, and the workflow files before running a batch. All JSON settings
+are authoritative. Fail fast on invalid configuration or contract mismatch.
 
 ## New batch
 

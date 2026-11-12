@@ -121,7 +121,8 @@ so the artefact under test is exactly what users install.
 - [x] `cleanup-refuses-without-confirmation`.
 - [x] `cleanup-backs-up-then-deletes-allowlist-and-itself-last` — timestamped
   backup under `.github/verisolve-backup-*`, allowlist-only deletion, user
-  agents/skills and `copilot-instructions.md` retained, cleanup directory
+  agents/skills and `copilot-instructions.md` retained, released
+  `references/` documentation deleted but not backed up, cleanup directory
   deleted last.
 
 ## E. CLI and structural invariants (`05-cli-invariants.ps1`)
@@ -142,8 +143,21 @@ so the artefact under test is exactly what users install.
 - [x] `config-keys-are-consumed-outside-the-config-folder`.
 - [x] `release-payload-is-the-only-deliverable-and-stays-inert` — the repository
   `.github` holds only `skills/verisolve-init`, no live `agents/config/contracts/
-  playbook/workflows/lib`, three agent templates, no agent file nested under
-  `skills/`, and the reference documents skill-local-inertness plus reload.
+  playbook/workflows/lib/references`, three agent templates, and no agent file
+  nested under `skills/`.
+- [x] `payload-reference-is-installer-only` — the payload reference documents the
+  loading rules, the three script contracts, and scaffold rollback, and never
+  duplicates the invariants list, `fail_category` enum, confidence formula, or
+  scoring weights; the old mixed-audience `architecture.md` is gone.
+- [x] `runtime-reference-ships-and-is-reachable` — `templates/references/
+  architecture.md` exists, uses the real guardrail key names, states the
+  implemented attempt order and downgrade semantics, and is released to
+  `.github/references/architecture.md` with the coordinator and project
+  instructions pointing at it.
+- [x] `docs-and-workflows-agree-on-bounded-context-and-ordering` — no
+  "complete VSProblem" reaches TriageAgent, no `raw.acceptance_criteria` reaches
+  ResolverAgent, and workflow/agent/runtime docs agree on projection and
+  ordering.
 
 ## F. Manual checks that require a real pipeline
 

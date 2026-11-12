@@ -254,7 +254,8 @@ Invoke-VSTest 'config-keys-are-consumed-outside-the-config-folder' {
         (Join-Path $script:Templates 'lib'),
         (Join-Path $script:ReleaseSkill 'scripts'),
         (Join-Path $script:Root 'scripts'),
-        $script:References,
+        $script:PayloadReferences,
+        $script:RuntimeReferences,
         (Join-Path $script:Templates 'copilot-instructions.md')
     )
     $consumers = @(Get-ChildItem -LiteralPath $roots -Recurse -Include '*.ps1', '*.md' -File -ErrorAction SilentlyContinue)
@@ -274,7 +275,7 @@ Invoke-VSTest 'release-payload-is-the-only-deliverable-and-stays-inert' {
     $topLevel = @(Get-ChildItem -LiteralPath $repoGithub -Force | ForEach-Object { $_.Name })
     Assert-VSEqual 'skills' ($topLevel -join ',') 'repository .github only carries the release skill directory'
 
-    foreach ($inert in @('agents', 'config', 'contracts', 'playbook', 'workflows', 'lib')) {
+    foreach ($inert in @('agents', 'config', 'contracts', 'playbook', 'workflows', 'lib', 'references')) {
         Assert-VSTrue (-not (Test-Path -LiteralPath (Join-Path $repoGithub $inert))) "no live .github/$inert before scaffolding"
     }
     Assert-VSTrue (-not (Test-Path -LiteralPath (Join-Path $repoGithub 'copilot-instructions.md'))) 'no live copilot-instructions.md before scaffolding'
@@ -284,11 +285,65 @@ Invoke-VSTest 'release-payload-is-the-only-deliverable-and-stays-inert' {
     $strayAgents = @(Get-ChildItem -LiteralPath $script:Templates -Recurse -Filter '*.agent.md' -File |
             Where-Object { $_.DirectoryName -ne (Join-Path $script:Templates 'agents') })
     Assert-VSEqual 0 $strayAgents.Count 'no agent templates live inside skills/ (they would never load)'
+}
 
-    $architecture = Join-Path $script:References 'architecture.md'
-    Assert-VSTrue (Test-Path -LiteralPath $architecture) 'architecture reference ships with the payload'
-    $architectureText = [IO.File]::ReadAllText($architecture, [Text.Encoding]::UTF8)
-    Assert-VSTrue ($architectureText -match 'inside a skill directory is not an Agent') 'reference documents that skill-local agents never load'
-    Assert-VSTrue ($architectureText -match 'session initialisation') 'reference documents agent discovery timing'
-    Assert-VSTrue ($architectureText -match 'reload') 'reference documents the reload requirement'
+Invoke-VSTest 'payload-reference-is-installer-only' {
+    $payloadDoc = Join-Path $script:PayloadReferences 'loading-and-contracts.md'
+    Assert-VSTrue (Test-Path -LiteralPath $payloadDoc) 'installer reference ships beside SKILL.md'
+    $text = [IO.File]::ReadAllText($payloadDoc, [Text.Encoding]::UTF8)
+
+    Assert-VSTrue ($text -match 'inside a skill directory is not an Agent') 'documents that skill-local agents never load'
+    Assert-VSTrue ($text -match 'session initialisation') 'documents agent discovery timing'
+    Assert-VSTrue ($text -match 'reload') 'documents the reload requirement'
+    foreach ($script in @('check-prerequisites.ps1', 'detect-state.ps1', 'scaffold.ps1')) {
+        Assert-VSTrue ($text -match [regex]::Escape($script)) "documents the $script contract"
+    }
+    Assert-VSTrue ($text -match 'rolled_back') 'documents scaffold rollback output'
+
+    Assert-VSTrue ($text -notmatch 'Invariants checklist') 'does not duplicate the runtime invariants list'
+    Assert-VSTrue ($text -notmatch 'new_issue_introduced') 'does not duplicate the fail_category enum'
+    Assert-VSTrue ($text -notmatch 'successes \+ failures \+ 2') 'does not duplicate the Playbook confidence formula'
+    Assert-VSTrue ($text -notmatch 'embedding_weight') 'does not duplicate scoring weights'
+
+    $staleDoc = Join-Path $script:PayloadReferences 'architecture.md'
+    Assert-VSTrue (-not (Test-Path -LiteralPath $staleDoc)) 'the mixed-audience architecture doc is gone'
+}
+
+Invoke-VSTest 'runtime-reference-ships-and-is-reachable' {
+    $runtimeDoc = Join-Path $script:RuntimeReferences 'architecture.md'
+    Assert-VSTrue (Test-Path -LiteralPath $runtimeDoc) 'runtime architecture ships inside templates/'
+    $text = [IO.File]::ReadAllText($runtimeDoc, [Text.Encoding]::UTF8)
+
+    Assert-VSTrue ($text -match 'Invariants checklist') 'runtime doc owns the invariants list'
+    Assert-VSTrue ($text -match 'max_patch_bytes') 'runtime doc uses the real guardrail key names'
+    Assert-VSTrue ($text -match 'downgraded = true') 'runtime doc states downgrade is a signal only'
+    Assert-VSTrue ($text -match 'match-score-descending, then confidence-descending') 'runtime doc states the implemented attempt order'
+    Assert-VSTrue ($text -match 'never inside the VSProblem contract') 'runtime doc keeps ingest_seq out of the contract'
+
+    $releasedDoc = Join-Path $script:BaseGithub 'references\architecture.md'
+    Assert-VSTrue (Test-Path -LiteralPath $releasedDoc) 'scaffolding releases references/architecture.md'
+
+    $coordinator = [IO.File]::ReadAllText((Join-Path $script:BaseGithub 'agents\verisolve.agent.md'), [Text.Encoding]::UTF8)
+    Assert-VSTrue ($coordinator -match 'references/architecture\.md') 'coordinator agent points at the released reference'
+    $instructions = [IO.File]::ReadAllText((Join-Path $script:BaseGithub 'copilot-instructions.md'), [Text.Encoding]::UTF8)
+    Assert-VSTrue ($instructions -match 'references/architecture\.md') 'project instructions point at the released reference'
+}
+
+Invoke-VSTest 'docs-and-workflows-agree-on-bounded-context-and-ordering' {
+    $workflow = [IO.File]::ReadAllText((Join-Path $script:BaseGithub 'workflows\run-pipeline.workflow.md'), [Text.Encoding]::UTF8)
+    Assert-VSTrue ($workflow -notmatch 'complete\s+VSProblem') 'workflow never lets a full VSProblem reach TriageAgent'
+    Assert-VSTrue ($workflow -match 'No open-container field') 'workflow states the projection rule for every agent'
+    Assert-VSTrue ($workflow -match 'match-score-descending') 'workflow uses the implemented attempt order'
+    Assert-VSTrue ($workflow -match 'infrastructure failure') 'workflow maps contract-invalid verdicts to infrastructure failure'
+
+    $resolver = [IO.File]::ReadAllText((Join-Path $script:BaseGithub 'agents\resolver.agent.md'), [Text.Encoding]::UTF8)
+    Assert-VSTrue ($resolver -notmatch 'raw\.acceptance_criteria') 'resolver never asks for the raw container'
+    Assert-VSTrue ($resolver -match 'acceptance_criteria') 'resolver documents the extracted acceptance criteria'
+
+    $triage = [IO.File]::ReadAllText((Join-Path $script:BaseGithub 'agents\triage.agent.md'), [Text.Encoding]::UTF8)
+    Assert-VSTrue ($triage -match 'never includes an open container') 'triage documents the projection rule'
+
+    $runtimeDoc = [IO.File]::ReadAllText((Join-Path $script:RuntimeReferences 'architecture.md'), [Text.Encoding]::UTF8)
+    Assert-VSTrue ($runtimeDoc -match 'Never receives `raw`|never receives `raw`|never projects') 'runtime doc forbids open containers for ResolverAgent'
+    Assert-VSTrue ($runtimeDoc -match 'Review is a mode of `ResolverAgent`') 'runtime doc states review is not a new agent'
 }

@@ -19,8 +19,11 @@ steps; delegate only to the two configured subagents.
    concurrent triage. Keep `ingest_seq` in the scheduler envelope; do not add
    it to the VSProblem contract.
 4. Delegate each single Problem to a fresh TriageAgent context. Validate exact
-   output shape and controlled enums. Triage input may be the complete
-   VSProblem; Resolver projections may not contain any open-container field.
+   output shape and controlled enums. Triage input is the same bounded
+   projection used for resolve mode: `problem_id`, source `category`,
+   `severity`, `keywords`, and an optional `summary` of at most 200 code points
+   extracted from raw. No open-container field (`raw`, `features`, `artifacts`,
+   `metadata`) may be passed to any agent.
 5. Call `playbook-query` for each Problem using the pinned snapshot. Use
    `rank-and-schedule` deterministic runtime logic: category priority from
    config, then within category Playbook hit first, match score descending,
@@ -29,9 +32,10 @@ steps; delegate only to the two configured subagents.
 ## Problem attempts
 
 1. Run each scheduled Problem in its own task, bounded by configured
-   concurrency. Attempt matching solutions in confidence-descending then
-   match-score-descending order up to `max_playbook_try`. If needed, make one
-   initial new-solution attempt plus `retry_per_bug` further solution attempts.
+   concurrency. Attempt matching solutions in match-score-descending, then
+   confidence-descending, then `pattern_id` ascending order up to
+   `max_playbook_try`. If needed, make one initial new-solution attempt plus
+   `retry_per_bug` further solution attempts.
 2. Every resolve/retry uses a new ResolverAgent context and only this
    allowlist: `problem_id`, triage `category`, triage `severity`, triage
    `keywords`, and optional one-line `summary` extracted from raw and capped at
@@ -52,11 +56,12 @@ steps; delegate only to the two configured subagents.
    checks at most `check_batch_limit` entries and never waits. Completed
    results are processed and acknowledged after workflow actions are durable.
 6. Only a VSVerdict returned by the configured Oracle has authority over
-   `ok`. `timeout` and `oracle_error` are infrastructure failures. Retry
-   verification up to `infra_retry` without consuming a business attempt or
-   creating a Resolver context. Other failed verdicts consume the current
-   solution attempt; revert idempotently and retry only if
-   `retry_per_bug` permits.
+   `ok`. A verdict that violates `contracts/vs-verdict.schema.json` is an
+   infrastructure failure (`oracle_error`), never a pass. `timeout` and
+   `oracle_error` are infrastructure failures. Retry verification up to
+   `infra_retry` without consuming a business attempt or creating a Resolver
+   context. Other failed verdicts consume the current solution attempt; revert
+   idempotently and retry only if `retry_per_bug` permits.
 7. After `Verdict.ok == true` only, if the triage category is high-risk, run
    `high-risk-review.workflow.md` in a fresh ResolverAgent review context. The
    review projection contains only `diff` and explicitly extracted bounded

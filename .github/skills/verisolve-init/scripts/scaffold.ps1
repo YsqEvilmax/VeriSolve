@@ -31,6 +31,7 @@ $requiredTemplates = @(
     'lib/vs-filelock.ps1'
     'lib/vs-playbook.ps1'
     'lib/vs-schedule.ps1'
+    'references/architecture.md'
     'copilot-instructions.md'
     'skills/fetch-backlog/SKILL.md'
     'skills/fetch-backlog/run.ps1'
@@ -131,6 +132,7 @@ $mapping = @(
     @{ source = 'playbook'; target = 'playbook' }
     @{ source = 'workflows'; target = 'workflows' }
     @{ source = 'lib'; target = 'lib' }
+    @{ source = 'references'; target = 'references' }
 )
 
 try {
